@@ -152,6 +152,8 @@ class SamplesGenerator:
         if not prompts:
             return [], prompts_consumed, True
 
+        var_epsilon = getattr(self.args.algo, "variance_filter_epsilon", None)
+
         target_num_prompts = len(prompts)
         pending_refs = self._dispatch_prompts_to_vllm(prompts, labels, images=images, **generate_kwargs)
         prompts_consumed += target_num_prompts
@@ -175,6 +177,14 @@ class SamplesGenerator:
                             f"Filtered out: avg_reward={avg_reward:.2f}, threshold=({min_r:.2f}, {max_r:.2f}), scores={[f'{s:.2f}' for s in scores]}"
                         )
                         experiences = []
+
+                    elif var_epsilon is not None:
+                        reward_variance = sum((score - avg_reward) ** 2 for score in scores) / len(scores)
+                        if reward_variance <= var_epsilon:
+                            logger.info(f"Filtered out: reward_variance={reward_variance:.2f}, threshold=({var_epsilon:.2f}), scores={[f'{s:.2f}' for s in scores]}"
+                                                    )
+                            experiences = []
+
 
                 if experiences:
                     accepted_experiences.extend(experiences)

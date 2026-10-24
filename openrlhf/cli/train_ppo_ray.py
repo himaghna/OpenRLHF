@@ -1,6 +1,7 @@
 import argparse
 import os
 from datetime import datetime
+import math
 
 import ray
 from ray.util.placement_group import placement_group
@@ -603,6 +604,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--algo.dynamic_filtering_range", nargs=2, default=(0, 1), type=float, help="Dynamic filtering rewards range"
     )
+    parser.add_argument(
+        "--algo.variance_filter_epsilon", default=None, type=float, help="The cutoff for variance of scores within a batch. " \
+        "Batches where variance <= variance_filter_epsilon than this are dropped. Onle accepts positive numbers. Disabled by default."
+    )
 
     # VLM (Vision-Language Model) parameters
     parser.add_argument("--data.image_key", type=str, default="images", help="Dataset key for image paths/URLs")
@@ -743,6 +748,15 @@ if __name__ == "__main__":
             "(over-sampling needs async queue to buffer extra batches)."
         )
 
+    epsilon = args.algo.variance_filter_epsilon
+    if epsilon is not None:
+        assert math.isfinite(epsilon) and epsilon > 0, (
+            "--algo.variance_filter_epsilon must be finite and positive"
+        )
+        assert args.algo.dynamic_filtering_enable, (
+            "--algo.variance_filter_epsilon requires dynamic filtering"
+        )
+    
     if args.algo.dynamic_filtering_enable:
         assert (
             args.algo.dynamic_filtering_range[0] < args.algo.dynamic_filtering_range[1]
@@ -753,6 +767,7 @@ if __name__ == "__main__":
         assert (
             args.rollout.n_samples_per_prompt > 1
         ), "n_samples_per_prompt must be greater than 1 when using dynamic filtering"
+
 
     assert (
         args.rollout.n_samples_per_prompt * args.rollout.batch_size // args.rollout.micro_batch_size

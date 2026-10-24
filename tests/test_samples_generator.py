@@ -136,3 +136,37 @@ def test_dynamic_filtering_preserves_terminal_accepted_rollouts(samples_generato
     assert prompts_consumed == 3
     assert exhausted is True
     assert fake_ray.cancelled == []
+
+
+def test_dynamic_filtering_rejects_identical_nonbinary_scores(samples_generator_module):
+    module, _ = samples_generator_module
+    generator = module.SamplesGenerator.__new__(module.SamplesGenerator)
+    generator.args = SimpleNamespace(algo=SimpleNamespace(dynamic_filtering_range=(0.0, 1.0), variance_filter_epsilon=0.01))
+    group = [SimpleNamespace(scores=torch.tensor([0.5])) for _ in range(4)]
+    generator._dispatch_prompts_to_vllm = lambda *_args, **_kwargs: [group]
+    generator._process_response_into_experience = lambda response, **_kwargs: response
+    dataloader = iter([(None, ["prompt"], [None], [None])])
+
+    experiences, _, _ = generator._generate_vllm(dataloader, num_prompts=1, dynamic_filtering=True)
+
+    # Constant 0.5 scores pass the current mean-only filter for (0, 1).
+    assert len(experiences) == 0
+
+
+
+def test_dynamic_filtering_keeps_varying_nonbinary_scores(samples_generator_module):
+    module, _ = samples_generator_module
+    generator = module.SamplesGenerator.__new__(module.SamplesGenerator)
+    generator.args = SimpleNamespace(
+        algo=SimpleNamespace(dynamic_filtering_range=(0.0, 1.0), variance_filter_epsilon=0.01)
+    )
+    group = [SimpleNamespace(scores=torch.tensor([score])) for score in [0.5, 0.0, 0.8]]
+    generator._dispatch_prompts_to_vllm = lambda *_args, **_kwargs: [group]
+    generator._process_response_into_experience = lambda response, **_kwargs: response
+    dataloader = iter([(None, ["prompt"], [None], [None])])
+
+    experiences, _, _ = generator._generate_vllm(dataloader, num_prompts=1, dynamic_filtering=True)
+
+    # Mean = 13/30 and population variance = 49/450 > 0.01.
+    assert len(experiences) == 3
+    assert all(actual is expected for actual, expected in zip(experiences, group))
